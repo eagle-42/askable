@@ -1,11 +1,12 @@
 [package]
 name = "askable"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
+description = "Prints structured tracing logs as a table"
 
 [dependencies]
 serde_json = "1.0"
 
-# No clap, no chrono: two flags parse in twenty lines, and an hour is already at
-# the front of every tracing message. A dependency earns its place when the
+# No clap, no chrono: three flags parse in twenty lines, and the hour is already
+# at the front of every tracing message. A dependency earns its place when the
 # surface grows, not before.
