@@ -37,9 +37,14 @@ pub struct Meta {
     /// corpus retires the previous reference, it does not extend it.
     pub corpus_fingerprint: String,
     pub k: usize,
-    pub recall_at_1: f64,
-    pub recall_at_5: f64,
-    pub recall_at_10: f64,
+    /// `null` when the cutoff is beyond the `k` results that were asked for.
+    ///
+    /// Printing recall@10 after asking for five results would report a ceiling
+    /// as a measurement — and a number nobody measured is the exact shape of
+    /// the failures this tool exists to catch.
+    pub recall_at_1: Option<f64>,
+    pub recall_at_5: Option<f64>,
+    pub recall_at_10: Option<f64>,
     pub mrr: f64,
     pub seconds: u64,
 }
@@ -76,6 +81,11 @@ pub fn recall_at(outcomes: &[Outcome], k: usize) -> f64 {
     hits as f64 / outcomes.len() as f64
 }
 
+/// Recall at `cutoff`, or `None` when only `k` results were ever requested.
+pub fn recall_within(outcomes: &[Outcome], cutoff: usize, k: usize) -> Option<f64> {
+    (cutoff <= k).then(|| recall_at(outcomes, cutoff))
+}
+
 /// Mean reciprocal rank. A case with no expected answer in reach contributes 0.
 pub fn mrr(outcomes: &[Outcome]) -> f64 {
     if outcomes.is_empty() {
@@ -85,7 +95,11 @@ pub fn mrr(outcomes: &[Outcome]) -> f64 {
         .iter()
         .filter_map(|o| o.rank)
         .map(|r| 1.0 / r as f64)
-        .sum();
+        .sum::<f64>()
+        // `Sum for f64` starts from NEGATIVE zero, so a corpus where nothing
+        // was found printed `-0.0000` — which reads as a bug in the tool rather
+        // than as a run that found nothing. Adding zero normalises the sign.
+        + 0.0;
     s / outcomes.len() as f64
 }
 
@@ -148,6 +162,24 @@ mod tests {
         assert!((recall_at(&all, 5) - 2.0 / 3.0).abs() < 1e-9);
         // The absent case adds nothing to the MRR — it does not add 1/999.
         assert!((mrr(&all) - (1.0 + 0.25) / 3.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_cutoff_beyond_what_was_asked_for_is_absent() {
+        let all = vec![outcome(Some(1))];
+        assert_eq!(recall_within(&all, 1, 5), Some(1.0));
+        assert_eq!(recall_within(&all, 5, 5), Some(1.0));
+        // Asked for five, so recall@10 was never measured. Not 1.0, not 0.0.
+        assert_eq!(recall_within(&all, 10, 5), None);
+    }
+
+    #[test]
+    fn a_run_that_found_nothing_reports_plain_zero() {
+        let none = vec![outcome(None), outcome(None)];
+        let m = mrr(&none);
+        assert_eq!(m, 0.0);
+        assert!(!m.is_sign_negative(), "negative zero reads as a broken tool");
+        assert_eq!(format!("{m:.4}"), "0.0000");
     }
 
     #[test]

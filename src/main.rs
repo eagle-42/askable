@@ -10,7 +10,7 @@
 
 use askable::candidate::{Candidate, Config};
 use askable::corpus::Corpus;
-use askable::record::{Meta, Record, mrr, recall_at, utc_iso};
+use askable::record::{Meta, Record, mrr, recall_within, utc_iso};
 use askable::replay::{Hit, hits_from, replay};
 use askable::{Event, events};
 use std::io::{self, IsTerminal, Read, Write};
@@ -129,9 +129,9 @@ fn run(args: &[String]) -> Result<(), String> {
             cases: corpus.cases.len(),
             corpus_fingerprint: corpus.fingerprint(),
             k: a.k,
-            recall_at_1: recall_at(&outcomes, 1),
-            recall_at_5: recall_at(&outcomes, 5),
-            recall_at_10: recall_at(&outcomes, 10),
+            recall_at_1: recall_within(&outcomes, 1, a.k),
+            recall_at_5: recall_within(&outcomes, 5, a.k),
+            recall_at_10: recall_within(&outcomes, 10, a.k),
             mrr: mrr(&outcomes),
             seconds: started.elapsed().as_secs(),
         },
@@ -180,6 +180,14 @@ fn show_progress(done: usize, total: usize, started: Instant) {
 }
 
 fn write_record(record: &Record, path: &Path) -> Result<(), String> {
+    // Records are measurements of a moment. Two runs in the same second would
+    // otherwise leave one of them silently gone.
+    if path.exists() {
+        return Err(format!(
+            "{} already exists; pass --out to write somewhere else",
+            path.display()
+        ));
+    }
     if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
         std::fs::create_dir_all(dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
     }
@@ -192,9 +200,17 @@ fn report(record: &Record) {
     let m = &record.meta;
     println!("candidate  {}", m.candidate);
     println!("corpus     {} ({} cases, {})", m.corpus, m.cases, m.corpus_fingerprint);
-    println!("recall@1   {:.4}", m.recall_at_1);
-    println!("recall@5   {:.4}", m.recall_at_5);
-    println!("recall@10  {:.4}", m.recall_at_10);
+    for (name, value) in [
+        ("recall@1 ", m.recall_at_1),
+        ("recall@5 ", m.recall_at_5),
+        ("recall@10", m.recall_at_10),
+    ] {
+        match value {
+            Some(v) => println!("{name}  {v:.4}"),
+            // A dash, never a zero: this cutoff was beyond the k asked for.
+            None => println!("{name}  -  (beyond the {} results requested)", m.k),
+        }
+    }
     println!("mrr        {:.4}", m.mrr);
     // The judge has a floor, and it belongs next to the numbers rather than in
     // a README nobody rereads: below it, a change is invisible to this corpus.

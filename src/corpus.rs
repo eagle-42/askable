@@ -8,6 +8,12 @@
 use serde::Deserialize;
 use std::path::Path;
 
+/// Shortest identifier prefix a corpus may use as an expected answer.
+///
+/// Four hexadecimal characters are one chance in 65 536 of matching something
+/// else; anything shorter turns a coincidence into a passing case.
+const MIN_GOLD: usize = 4;
+
 #[derive(Debug, Deserialize, Clone, PartialEq)]
 pub struct Case {
     pub question: String,
@@ -41,6 +47,20 @@ impl Corpus {
         }
         if let Some(bad) = c.cases.iter().find(|k| k.gold.is_empty()) {
             return Err(format!("case {:?} lists no expected answer", bad.question));
+        }
+        // A gold matches by prefix, so a very short one matches identifiers it
+        // was never meant to. That does not fail: it scores a wrong answer as
+        // right and quietly inflates the headline number.
+        if let Some((case, g)) = c
+            .cases
+            .iter()
+            .find_map(|k| k.gold.iter().find(|g| g.len() < MIN_GOLD).map(|g| (k, g)))
+        {
+            return Err(format!(
+                "case {:?}: the expected answer {g:?} is shorter than {MIN_GOLD} characters, \
+and would match identifiers it does not mean",
+                case.question
+            ));
         }
         Ok(c)
     }
@@ -89,6 +109,13 @@ mod tests {
         assert_eq!(c.name, "demo");
         assert_eq!(c.cases.len(), 2);
         assert_eq!(c.cases[1].gold, vec!["c3d4", "e5f6"]);
+    }
+
+    #[test]
+    fn a_gold_too_short_to_mean_anything_is_refused() {
+        let tiny = r#"{"name":"x","cases":[{"question":"q","gold":["a1"]}]}"#;
+        let e = Corpus::from_json(tiny).unwrap_err();
+        assert!(e.contains("shorter than"), "got: {e}");
     }
 
     #[test]

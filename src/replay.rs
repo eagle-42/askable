@@ -103,9 +103,9 @@ mod tests {
     fn corpus() -> Corpus {
         Corpus::from_json(
             r#"{"name":"t","cases":[
-                {"question":"one","gold":["aaa"]},
-                {"question":"two","gold":["bbb"]},
-                {"question":"three","gold":["ccc"]}]}"#,
+                {"question":"one","gold":["aaa1"]},
+                {"question":"two","gold":["bbb2"]},
+                {"question":"three","gold":["ccc3"]}]}"#,
         )
         .unwrap()
     }
@@ -160,7 +160,7 @@ mod tests {
                 if asked == 2 {
                     Err("connection refused".into())
                 } else {
-                    Ok(vec![hit("aaa")])
+                    Ok(vec![hit("aaa1")])
                 }
             },
             |_, _| {},
