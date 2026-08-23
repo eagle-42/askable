@@ -1,1 +1,9 @@
 /target
+# Your own candidates, with your own hostnames.
+/askable.toml
+# Records are measurements of a moment; keep the ones that matter somewhere
+# they are backed up, not in the working tree.
+/records/
+# A real corpus quotes the documents it searches. Keep it out of a public
+# repository: the questions alone are a table of contents.
+*.private.json

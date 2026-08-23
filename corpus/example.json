@@ -1,0 +1,17 @@
+{
+  "name": "example",
+  "cases": [
+    {
+      "question": "how do I roll back the last deployment",
+      "gold": ["doc-deploy-rollback"]
+    },
+    {
+      "question": "the nightly job stopped sending its report",
+      "gold": ["doc-cron-alerts", "doc-mail-relay"]
+    },
+    {
+      "question": "which port does the cache listen on",
+      "gold": ["doc-ports"]
+    }
+  ]
+}

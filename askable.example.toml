@@ -1,0 +1,17 @@
+# Candidates: one system, at one version, reachable at one URL.
+#
+# Copy this to askable.toml and point it at your own service. askable.toml is
+# ignored by git on purpose — a URL is part of your infrastructure, not of this
+# repository.
+
+[candidate.example]
+# The whole request. {query} is replaced by the question, percent-encoded;
+# {k} by how many results to ask for.
+url = "http://localhost:8080/search?q={query}&k={k}"
+
+# Which field of a result carries its identifier. Defaults to "id".
+# id_field = "id"
+
+# Where the array of results sits, when it is not the whole body.
+# Leave it out when the service answers with a bare JSON array.
+# results_at = "results"

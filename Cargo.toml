@@ -1,12 +1,11 @@
 [package]
 name = "askable"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
-description = "Prints structured tracing logs as a table"
+description = "A regression judge for ranked search: replay a frozen corpus, record where the right answers landed"
 
 [dependencies]
+serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-
-# No clap, no chrono: three flags parse in twenty lines, and the hour is already
-# at the front of every tracing message. A dependency earns its place when the
-# surface grows, not before.
+toml = "1.1"
+ureq = { version = "3.4", features = ["json"] }
