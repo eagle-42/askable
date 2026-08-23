@@ -7,3 +7,4 @@ description = "A regression judge for ranked search: replay a frozen corpus, rec
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+toml = "1.1"
