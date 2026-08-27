@@ -4,6 +4,7 @@
 //! logic can be tested without either.
 
 pub mod candidate;
+pub mod config;
 pub mod corpus;
 pub mod log;
 pub mod record;

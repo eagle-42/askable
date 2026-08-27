@@ -98,7 +98,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::candidate::Config;
+    use crate::config::Config;
 
     fn corpus() -> Corpus {
         Corpus::from_json(

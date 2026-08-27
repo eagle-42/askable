@@ -8,7 +8,8 @@
 //! This file holds the command line, the network and the rendering. Everything
 //! that can be decided without those lives in the library, where it is tested.
 
-use askable::candidate::{Candidate, Config};
+use askable::candidate::Candidate;
+use askable::config::Config;
 use askable::corpus::Corpus;
 use askable::record::{Meta, Record, mrr, recall_within, utc_iso};
 use askable::replay::{Hit, hits_from, replay};
