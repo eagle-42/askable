@@ -1,7 +1,7 @@
 //! askable — a regression judge for ranked search.
 //!
 //! ```text
-//! askable run  --candidate mine  --corpus corpus/example.json
+//! askable run  --candidate mine --corpus corpus/example.json
 //! askable tail --match rag=true --show query,ms_total --last 20
 //! ```
 //!
@@ -13,6 +13,7 @@ use askable::config::Config;
 use askable::corpus::Corpus;
 use askable::record::{Meta, Record, mrr, recall_within, utc_iso};
 use askable::replay::{Hit, hits_from, replay};
+use askable::verdict::{AtCutoff, compare};
 use askable::{Event, events};
 use std::io::{self, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
@@ -29,20 +30,149 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_CELL: usize = 44;
 
 const USAGE: &str = "usage:
-  askable run  --candidate NAME --corpus FILE [--label TEXT] [--config FILE] [--k N] [--out FILE]
-  askable tail [--match k=v]... [--show a,b,c] [--last N]";
+  askable run   --candidate NAME --corpus FILE [--label TEXT] [--config FILE] [--k N] [--out FILE]
+  askable judge REFERENCE.json CANDIDATE.json [--config FILE]
+  askable tail  [--match k=v]... [--show a,b,c] [--last N]
+
+exit code: 0 nothing to report, 1 a regression the corpus can see, 2 a mistake";
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let outcome = match args.first().map(String::as_str) {
-        Some("run") => run(&args[1..]),
-        Some("tail") => tail(&args[1..]),
+        Some("run") => run(&args[1..]).map(|()| 0),
+        Some("judge") => judge(&args[1..]),
+        Some("tail") => tail(&args[1..]).map(|()| 0),
         _ => Err(USAGE.to_string()),
     };
-    if let Err(e) = outcome {
-        eprintln!("askable: {e}");
-        std::process::exit(2);
+    match outcome {
+        // A verdict leaves through the exit code, because that is the only part
+        // of it a pipeline reads.
+        Ok(code) => std::process::exit(code),
+        Err(e) => {
+            eprintln!("askable: {e}");
+            std::process::exit(2);
+        }
     }
+}
+
+// ---------------------------------------------------------------- judge
+
+fn judge(args: &[String]) -> Result<i32, String> {
+    let mut files: Vec<&String> = Vec::new();
+    let mut config = PathBuf::from(DEFAULT_CONFIG);
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--config" => {
+                config = PathBuf::from(
+                    args.get(i + 1)
+                        .ok_or("--config expects a value")?,
+                );
+                i += 2;
+            }
+            flag if flag.starts_with("--") => {
+                return Err(format!("unknown flag `{flag}`\n{USAGE}"));
+            }
+            _ => {
+                files.push(&args[i]);
+                i += 1;
+            }
+        }
+    }
+    let [reference_path, candidate_path] = files.as_slice() else {
+        return Err(format!("judge wants two records, got {}\n{USAGE}", files.len()));
+    };
+    // The judge's strictness is configuration, so that a FAIL can be argued
+    // with in a diff rather than in a shell history.
+    let settings = if config.exists() {
+        Config::load(&config)?.judge
+    } else {
+        askable::config::Judge::default()
+    };
+    let reference = read_record(Path::new(reference_path))?;
+    let candidate = read_record(Path::new(candidate_path))?;
+    let at = compare(&reference, &candidate, &settings)?;
+
+    report_verdict(&reference, &candidate, &at, reference_path, candidate_path);
+    Ok(if at.iter().any(AtCutoff::failed) { 1 } else { 0 })
+}
+
+fn read_record(path: &Path) -> Result<Record, String> {
+    let raw = std::fs::read_to_string(path)
+        .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    serde_json::from_str(&raw).map_err(|e| format!("{} is not a record: {e}", path.display()))
+}
+
+fn report_verdict(
+    reference: &Record,
+    candidate: &Record,
+    at: &[AtCutoff],
+    reference_path: &str,
+    candidate_path: &str,
+) {
+    // An unlabelled record still compares; it just cannot say what changed, and
+    // saying so is more useful than leaving the column blank.
+    let label = |r: &Record| {
+        r.meta
+            .candidate_version
+            .clone()
+            .unwrap_or_else(|| "unlabelled".into())
+    };
+    println!(
+        "reference  {reference_path}  {} @ {}  {}",
+        reference.meta.candidate,
+        label(reference),
+        reference.meta.produced_at
+    );
+    println!(
+        "candidate  {candidate_path}  {} @ {}  {}",
+        candidate.meta.candidate,
+        label(candidate),
+        candidate.meta.produced_at
+    );
+    println!(
+        "corpus     {} ({} cases, {}), k={}\n",
+        reference.meta.corpus, reference.meta.cases, reference.meta.corpus_fingerprint,
+        reference.meta.k
+    );
+    println!("cutoff  reference  candidate  regressed  improved      p  verdict");
+    for a in at {
+        let mark = if a.below_floor.is_some() {
+            "under floor"
+        } else if a.significant_regression {
+            "REGRESSION"
+        } else {
+            "ok"
+        };
+        println!(
+            "{:>6}  {:>9.4}  {:>9.4}  {:>9}  {:>8}  {:>5.3}  {mark}",
+            a.cutoff,
+            a.reference_recall,
+            a.candidate_recall,
+            a.regressions.len(),
+            a.improvements.len(),
+            a.p_value
+        );
+    }
+    for a in at.iter().filter(|a| !a.regressions.is_empty()) {
+        println!("\ncases lost at rank {}:", a.cutoff);
+        for q in &a.regressions {
+            println!("  {q}");
+        }
+    }
+    let failed = at.iter().any(AtCutoff::failed);
+    println!(
+        "\n{}",
+        if failed {
+            "FAIL - this corpus can see this regression".to_string()
+        } else {
+            format!(
+                "PASS - no regression this corpus can see. Its floor is {} discordant cases; \
+anything smaller is invisible here, whatever the number of cases.",
+                discordant_floor()
+            )
+        }
+    );
 }
 
 // ---------------------------------------------------------------- run
