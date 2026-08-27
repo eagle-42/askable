@@ -9,6 +9,7 @@ pub mod corpus;
 pub mod log;
 pub mod record;
 pub mod replay;
+pub mod verdict;
 
 // The log reader was the whole crate once. Keep its names at the root so the
 // callers that learned them still compile.
