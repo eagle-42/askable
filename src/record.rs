@@ -4,10 +4,10 @@
 //! compared honestly later — which system, which version, which corpus — because
 //! a number without those three is not a measurement, it is a souvenir.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-#[derive(Debug, Serialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct Outcome {
     pub question: String,
     pub gold: Vec<String>,
@@ -26,10 +26,18 @@ pub struct Outcome {
     pub top_numbers: BTreeMap<String, f64>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Meta {
     pub produced_at: String,
     pub candidate: String,
+    /// Whatever identifies the version that was measured — a commit, a model
+    /// name, a row count. askable cannot discover it: only the person running
+    /// the replay knows what they just changed, so `run --label` asks them.
+    ///
+    /// `None` is allowed and visible in the verdict. A comparison between two
+    /// unlabelled records is still arithmetic; it just cannot say what changed.
+    #[serde(default)]
+    pub candidate_version: Option<String>,
     pub url: String,
     pub corpus: String,
     pub cases: usize,
@@ -49,7 +57,7 @@ pub struct Meta {
     pub seconds: u64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Record {
     pub meta: Meta,
     pub outcomes: Vec<Outcome>,

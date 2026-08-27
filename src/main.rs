@@ -28,7 +28,7 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_CELL: usize = 44;
 
 const USAGE: &str = "usage:
-  askable run  --candidate NAME --corpus FILE [--config FILE] [--k N] [--out FILE]
+  askable run  --candidate NAME --corpus FILE [--label TEXT] [--config FILE] [--k N] [--out FILE]
   askable tail [--match k=v]... [--show a,b,c] [--last N]";
 
 fn main() {
@@ -48,6 +48,7 @@ fn main() {
 
 struct RunArgs {
     candidate: String,
+    label: Option<String>,
     corpus: PathBuf,
     config: PathBuf,
     k: usize,
@@ -59,6 +60,7 @@ fn run_args(args: &[String]) -> Result<RunArgs, String> {
     let mut corpus = None;
     let mut a = RunArgs {
         candidate: String::new(),
+        label: None,
         corpus: PathBuf::new(),
         config: PathBuf::from(DEFAULT_CONFIG),
         k: DEFAULT_K,
@@ -74,6 +76,7 @@ fn run_args(args: &[String]) -> Result<RunArgs, String> {
         match args[i].as_str() {
             "--candidate" => candidate = Some(value()?),
             "--corpus" => corpus = Some(PathBuf::from(value()?)),
+            "--label" => a.label = Some(value()?),
             "--config" => a.config = PathBuf::from(value()?),
             "--out" => a.out = Some(PathBuf::from(value()?)),
             "--k" => {
@@ -124,6 +127,7 @@ fn run(args: &[String]) -> Result<(), String> {
                     .as_secs(),
             ),
             candidate: a.candidate.clone(),
+            candidate_version: a.label.clone(),
             url: cand.url.clone(),
             corpus: corpus.name.clone(),
             cases: corpus.cases.len(),
