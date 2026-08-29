@@ -13,8 +13,12 @@ exist; this is the other half, the one that renders a verdict.
 ## Use
 
 ```
-askable run --candidate mine --corpus corpus/example.json
+askable run --candidate mine --corpus corpus/example.json --label v1.2.0
 ```
+
+`--label` is required. It says WHICH version this measures — a commit, a model
+name, a row count. askable cannot discover it, and a record nobody can attribute
+to a version is an anecdote.
 
 ```
 candidate  mine

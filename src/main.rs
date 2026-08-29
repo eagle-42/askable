@@ -9,7 +9,7 @@
 //! that can be decided without those lives in the library, where it is tested.
 
 use askable::candidate::Candidate;
-use askable::config::Config;
+use askable::config::{Config, Judge};
 use askable::corpus::Corpus;
 use askable::record::{Meta, Record, mrr, recall_within, utc_iso};
 use askable::replay::{Hit, hits_from, replay};
@@ -30,7 +30,8 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_CELL: usize = 44;
 
 const USAGE: &str = "usage:
-  askable run   --candidate NAME --corpus FILE [--label TEXT] [--config FILE] [--k N] [--out FILE]
+  askable run   --candidate NAME --corpus FILE --label TEXT
+                [--judge REFERENCE.json] [--config FILE] [--k N] [--out FILE]
   askable judge REFERENCE.json CANDIDATE.json [--config FILE]
   askable tail  [--match k=v]... [--show a,b,c] [--last N]
 
@@ -39,7 +40,7 @@ exit code: 0 nothing to report, 1 a regression the corpus can see, 2 a mistake";
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let outcome = match args.first().map(String::as_str) {
-        Some("run") => run(&args[1..]).map(|()| 0),
+        Some("run") => run(&args[1..]),
         Some("judge") => judge(&args[1..]),
         Some("tail") => tail(&args[1..]).map(|()| 0),
         _ => Err(USAGE.to_string()),
@@ -84,11 +85,7 @@ fn judge(args: &[String]) -> Result<i32, String> {
     };
     // The judge's strictness is configuration, so that a FAIL can be argued
     // with in a diff rather than in a shell history.
-    let settings = if config.exists() {
-        Config::load(&config)?.judge
-    } else {
-        askable::config::Judge::default()
-    };
+    let settings = judge_settings(&config)?;
     let reference = read_record(Path::new(reference_path))?;
     let candidate = read_record(Path::new(candidate_path))?;
     let at = compare(&reference, &candidate, &settings)?;
@@ -177,9 +174,16 @@ anything smaller is invisible here, whatever the number of cases.",
 
 // ---------------------------------------------------------------- run
 
+#[derive(Debug)]
 struct RunArgs {
     candidate: String,
-    label: Option<String>,
+    label: String,
+    /// A reference record to judge against as soon as the replay is done.
+    ///
+    /// This is the whole gesture in continuous integration: replay, compare,
+    /// leave through the exit code. Two commands would mean the second one can
+    /// be forgotten.
+    judge: Option<PathBuf>,
     corpus: PathBuf,
     config: PathBuf,
     k: usize,
@@ -188,10 +192,12 @@ struct RunArgs {
 
 fn run_args(args: &[String]) -> Result<RunArgs, String> {
     let mut candidate = None;
+    let mut label = None;
     let mut corpus = None;
     let mut a = RunArgs {
         candidate: String::new(),
-        label: None,
+        label: String::new(),
+        judge: None,
         corpus: PathBuf::new(),
         config: PathBuf::from(DEFAULT_CONFIG),
         k: DEFAULT_K,
@@ -207,7 +213,8 @@ fn run_args(args: &[String]) -> Result<RunArgs, String> {
         match args[i].as_str() {
             "--candidate" => candidate = Some(value()?),
             "--corpus" => corpus = Some(PathBuf::from(value()?)),
-            "--label" => a.label = Some(value()?),
+            "--label" => label = Some(value()?),
+            "--judge" => a.judge = Some(PathBuf::from(value()?)),
             "--config" => a.config = PathBuf::from(value()?),
             "--out" => a.out = Some(PathBuf::from(value()?)),
             "--k" => {
@@ -221,13 +228,19 @@ fn run_args(args: &[String]) -> Result<RunArgs, String> {
     }
     a.candidate = candidate.ok_or("run needs --candidate NAME")?;
     a.corpus = corpus.ok_or("run needs --corpus FILE")?;
+    // Not optional: a record nobody can attribute to a version is an anecdote.
+    // askable cannot discover what changed, so it insists that you say it.
+    a.label = label.ok_or(
+        "run needs --label TEXT, saying WHICH version this measures \
+(a commit, a model name, a row count). Nothing else can tell two records apart",
+    )?;
     if a.k == 0 {
         return Err("--k 0 would ask for no result at all".into());
     }
     Ok(a)
 }
 
-fn run(args: &[String]) -> Result<(), String> {
+fn run(args: &[String]) -> Result<i32, String> {
     let a = run_args(args)?;
     let config = Config::load(&a.config)?;
     let cand = config.get(&a.candidate)?;
@@ -258,7 +271,7 @@ fn run(args: &[String]) -> Result<(), String> {
                     .as_secs(),
             ),
             candidate: a.candidate.clone(),
-            candidate_version: a.label.clone(),
+            candidate_version: Some(a.label.clone()),
             url: cand.url.clone(),
             corpus: corpus.name.clone(),
             cases: corpus.cases.len(),
@@ -283,7 +296,33 @@ fn run(args: &[String]) -> Result<(), String> {
     write_record(&record, &path)?;
     report(&record);
     eprintln!("askable: record written to {}", path.display());
-    Ok(())
+
+    // The record is on disk BEFORE the verdict runs. A failing comparison must
+    // not throw away the measurement that proves it.
+    let Some(reference_path) = a.judge else {
+        return Ok(0);
+    };
+    let reference = read_record(&reference_path)?;
+    let at = compare(&reference, &record, &judge_settings(&a.config)?)?;
+    println!();
+    report_verdict(
+        &reference,
+        &record,
+        &at,
+        &reference_path.display().to_string(),
+        &path.display().to_string(),
+    );
+    Ok(if at.iter().any(AtCutoff::failed) { 1 } else { 0 })
+}
+
+/// How strict the judge is, from the config file, or the defaults when there is
+/// none. Shared by `run --judge` and `judge`, so the two cannot drift apart.
+fn judge_settings(config: &Path) -> Result<Judge, String> {
+    if config.exists() {
+        Ok(Config::load(config)?.judge)
+    } else {
+        Ok(Judge::default())
+    }
 }
 
 /// One HTTP call, turned into hits or into an error that names the case.
@@ -503,4 +542,42 @@ fn tail(args: &[String]) -> Result<(), String> {
     render(shown, &columns(&opts, shown));
     eprintln!("askable: {} matched, {} shown", found.len(), shown.len());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(line: &str) -> Vec<String> {
+        line.split_whitespace().map(String::from).collect()
+    }
+
+    #[test]
+    fn a_run_without_a_label_is_refused_and_says_why() {
+        let e = run_args(&args("--candidate c --corpus f.json")).unwrap_err();
+        assert!(e.contains("--label"), "got: {e}");
+        assert!(e.contains("WHICH version"), "the message must say what for");
+    }
+
+    #[test]
+    fn the_whole_ci_gesture_parses() {
+        let a = run_args(&args(
+            "--candidate mine --corpus bench.json --label abc123 --judge records/ref.json --k 5",
+        ))
+        .unwrap();
+        assert_eq!(a.label, "abc123");
+        assert_eq!(a.judge, Some(PathBuf::from("records/ref.json")));
+        assert_eq!(a.k, 5);
+        // The defaults still hold for everything not named.
+        assert_eq!(a.config, PathBuf::from(DEFAULT_CONFIG));
+        assert_eq!(a.out, None);
+    }
+
+    #[test]
+    fn a_run_still_needs_something_to_ask_and_someone_to_ask() {
+        assert!(run_args(&args("--corpus f.json --label x")).is_err());
+        assert!(run_args(&args("--candidate c --label x")).is_err());
+        assert!(run_args(&args("--candidate c --corpus f.json --label x --k 0")).is_err());
+        assert!(run_args(&args("--candidate c --corpus f.json --label x --nope 1")).is_err());
+    }
 }
