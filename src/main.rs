@@ -1,7 +1,7 @@
 //! askable — a regression judge for ranked search.
 //!
 //! ```text
-//! askable run  --candidate mine --corpus corpus/example.json
+//! askable run   --candidate mine  --corpus corpus/example.json
 //! askable tail --match rag=true --show query,ms_total --last 20
 //! ```
 //!
