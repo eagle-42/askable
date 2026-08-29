@@ -30,7 +30,8 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_CELL: usize = 44;
 
 const USAGE: &str = "usage:
-  askable run   --candidate NAME --corpus FILE --label TEXT [--config FILE] [--k N] [--out FILE]
+  askable run   --candidate NAME --corpus FILE --label TEXT
+                [--judge REFERENCE.json] [--config FILE] [--k N] [--out FILE]
   askable judge REFERENCE.json CANDIDATE.json [--config FILE]
   askable tail  [--match k=v]... [--show a,b,c] [--last N]
 
@@ -177,6 +178,12 @@ anything smaller is invisible here, whatever the number of cases.",
 struct RunArgs {
     candidate: String,
     label: String,
+    /// A reference record to judge against as soon as the replay is done.
+    ///
+    /// This is the whole gesture in continuous integration: replay, compare,
+    /// leave through the exit code. Two commands would mean the second one can
+    /// be forgotten.
+    judge: Option<PathBuf>,
     corpus: PathBuf,
     config: PathBuf,
     k: usize,
@@ -190,6 +197,7 @@ fn run_args(args: &[String]) -> Result<RunArgs, String> {
     let mut a = RunArgs {
         candidate: String::new(),
         label: String::new(),
+        judge: None,
         corpus: PathBuf::new(),
         config: PathBuf::from(DEFAULT_CONFIG),
         k: DEFAULT_K,
@@ -206,6 +214,7 @@ fn run_args(args: &[String]) -> Result<RunArgs, String> {
             "--candidate" => candidate = Some(value()?),
             "--corpus" => corpus = Some(PathBuf::from(value()?)),
             "--label" => label = Some(value()?),
+            "--judge" => a.judge = Some(PathBuf::from(value()?)),
             "--config" => a.config = PathBuf::from(value()?),
             "--out" => a.out = Some(PathBuf::from(value()?)),
             "--k" => {
@@ -288,11 +297,26 @@ fn run(args: &[String]) -> Result<i32, String> {
     report(&record);
     eprintln!("askable: record written to {}", path.display());
 
-    Ok(0)
+    // The record is on disk BEFORE the verdict runs. A failing comparison must
+    // not throw away the measurement that proves it.
+    let Some(reference_path) = a.judge else {
+        return Ok(0);
+    };
+    let reference = read_record(&reference_path)?;
+    let at = compare(&reference, &record, &judge_settings(&a.config)?)?;
+    println!();
+    report_verdict(
+        &reference,
+        &record,
+        &at,
+        &reference_path.display().to_string(),
+        &path.display().to_string(),
+    );
+    Ok(if at.iter().any(AtCutoff::failed) { 1 } else { 0 })
 }
 
 /// How strict the judge is, from the config file, or the defaults when there is
-/// none.
+/// none. Shared by `run --judge` and `judge`, so the two cannot drift apart.
 fn judge_settings(config: &Path) -> Result<Judge, String> {
     if config.exists() {
         Ok(Config::load(config)?.judge)
@@ -535,6 +559,19 @@ mod tests {
         assert!(e.contains("WHICH version"), "the message must say what for");
     }
 
+    #[test]
+    fn the_whole_ci_gesture_parses() {
+        let a = run_args(&args(
+            "--candidate mine --corpus bench.json --label abc123 --judge records/ref.json --k 5",
+        ))
+        .unwrap();
+        assert_eq!(a.label, "abc123");
+        assert_eq!(a.judge, Some(PathBuf::from("records/ref.json")));
+        assert_eq!(a.k, 5);
+        // The defaults still hold for everything not named.
+        assert_eq!(a.config, PathBuf::from(DEFAULT_CONFIG));
+        assert_eq!(a.out, None);
+    }
 
     #[test]
     fn a_run_still_needs_something_to_ask_and_someone_to_ask() {
