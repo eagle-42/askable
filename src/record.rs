@@ -152,7 +152,10 @@ mod tests {
 
     #[test]
     fn a_short_gold_matches_a_full_identifier() {
-        let returned = vec!["2eebc3e2-b77c-4180".to_string(), "af076cc4-0000".to_string()];
+        let returned = vec![
+            "2eebc3e2-b77c-4180".to_string(),
+            "af076cc4-0000".to_string(),
+        ];
         assert_eq!(rank_of(&returned, &["2eebc3e2".into()]), Some(1));
         assert_eq!(rank_of(&returned, &["af076cc4".into()]), Some(2));
         // Several golds: the FIRST one to appear wins, not the first listed.
@@ -186,7 +189,10 @@ mod tests {
         let none = vec![outcome(None), outcome(None)];
         let m = mrr(&none);
         assert_eq!(m, 0.0);
-        assert!(!m.is_sign_negative(), "negative zero reads as a broken tool");
+        assert!(
+            !m.is_sign_negative(),
+            "negative zero reads as a broken tool"
+        );
         assert_eq!(format!("{m:.4}"), "0.0000");
     }
 

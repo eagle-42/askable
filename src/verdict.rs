@@ -69,7 +69,11 @@ fn found(o: &Outcome, cutoff: usize) -> bool {
 /// Refusing is the point. Two records of different corpora, or asked for a
 /// different number of results, produce a number that looks exactly like a
 /// comparison and is not one.
-pub fn compare(reference: &Record, candidate: &Record, judge: &Judge) -> Result<Vec<AtCutoff>, String> {
+pub fn compare(
+    reference: &Record,
+    candidate: &Record,
+    judge: &Judge,
+) -> Result<Vec<AtCutoff>, String> {
     if reference.meta.corpus_fingerprint != candidate.meta.corpus_fingerprint {
         return Err(format!(
             "these records are not of the same corpus ({} vs {}). A refresh retires the previous \
@@ -114,9 +118,8 @@ the two were never measured",
                 }
             }
             let n = reference.outcomes.len() as f64;
-            let rate = |r: &Record| {
-                r.outcomes.iter().filter(|o| found(o, cutoff)).count() as f64 / n
-            };
+            let rate =
+                |r: &Record| r.outcomes.iter().filter(|o| found(o, cutoff)).count() as f64 / n;
             let candidate_recall = rate(candidate);
             let p_value = mcnemar(regressions.len(), improvements.len());
             AtCutoff {
@@ -237,7 +240,10 @@ mod tests {
         let before = record(&[Some(1); 10], "f", 10);
         let after = record(&[None; 10], "f", 10);
         let judge = Judge {
-            floor: vec![Floor { cutoff: 1, recall: 0.5 }],
+            floor: vec![Floor {
+                cutoff: 1,
+                recall: 0.5,
+            }],
             ..Judge::default()
         };
         let at = compare(&before, &after, &judge).unwrap();

@@ -65,10 +65,7 @@ fn judge(args: &[String]) -> Result<i32, String> {
     while i < args.len() {
         match args[i].as_str() {
             "--config" => {
-                config = PathBuf::from(
-                    args.get(i + 1)
-                        .ok_or("--config expects a value")?,
-                );
+                config = PathBuf::from(args.get(i + 1).ok_or("--config expects a value")?);
                 i += 2;
             }
             flag if flag.starts_with("--") => {
@@ -81,7 +78,10 @@ fn judge(args: &[String]) -> Result<i32, String> {
         }
     }
     let [reference_path, candidate_path] = files.as_slice() else {
-        return Err(format!("judge wants two records, got {}\n{USAGE}", files.len()));
+        return Err(format!(
+            "judge wants two records, got {}\n{USAGE}",
+            files.len()
+        ));
     };
     // The judge's strictness is configuration, so that a FAIL can be argued
     // with in a diff rather than in a shell history.
@@ -91,7 +91,11 @@ fn judge(args: &[String]) -> Result<i32, String> {
     let at = compare(&reference, &candidate, &settings)?;
 
     report_verdict(&reference, &candidate, &at, reference_path, candidate_path);
-    Ok(if at.iter().any(AtCutoff::failed) { 1 } else { 0 })
+    Ok(if at.iter().any(AtCutoff::failed) {
+        1
+    } else {
+        0
+    })
 }
 
 fn read_record(path: &Path) -> Result<Record, String> {
@@ -129,7 +133,9 @@ fn report_verdict(
     );
     println!(
         "corpus     {} ({} cases, {}), k={}\n",
-        reference.meta.corpus, reference.meta.cases, reference.meta.corpus_fingerprint,
+        reference.meta.corpus,
+        reference.meta.cases,
+        reference.meta.corpus_fingerprint,
         reference.meta.k
     );
     println!("cutoff  reference  candidate  regressed  improved      p  verdict");
@@ -312,7 +318,11 @@ fn run(args: &[String]) -> Result<i32, String> {
         &reference_path.display().to_string(),
         &path.display().to_string(),
     );
-    Ok(if at.iter().any(AtCutoff::failed) { 1 } else { 0 })
+    Ok(if at.iter().any(AtCutoff::failed) {
+        1
+    } else {
+        0
+    })
 }
 
 /// How strict the judge is, from the config file, or the defaults when there is
@@ -363,7 +373,8 @@ fn write_record(record: &Record, path: &Path) -> Result<(), String> {
         ));
     }
     if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
-        std::fs::create_dir_all(dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+        std::fs::create_dir_all(dir)
+            .map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
     }
     let json =
         serde_json::to_string_pretty(record).map_err(|e| format!("cannot serialise: {e}"))?;
@@ -373,7 +384,10 @@ fn write_record(record: &Record, path: &Path) -> Result<(), String> {
 fn report(record: &Record) {
     let m = &record.meta;
     println!("candidate  {}", m.candidate);
-    println!("corpus     {} ({} cases, {})", m.corpus, m.cases, m.corpus_fingerprint);
+    println!(
+        "corpus     {} ({} cases, {})",
+        m.corpus, m.cases, m.corpus_fingerprint
+    );
     for (name, value) in [
         ("recall@1 ", m.recall_at_1),
         ("recall@5 ", m.recall_at_5),

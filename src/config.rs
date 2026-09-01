@@ -70,7 +70,8 @@ impl Config {
     pub fn from_toml(raw: &str) -> Result<Config, String> {
         let c: Config = toml::from_str(raw).map_err(|e| format!("not a config: {e}"))?;
         for (name, cand) in &c.candidate {
-            cand.check().map_err(|e| format!("candidate `{name}`: {e}"))?;
+            cand.check()
+                .map_err(|e| format!("candidate `{name}`: {e}"))?;
         }
         if c.judge.cutoffs.is_empty() {
             return Err("judge.cutoffs is empty, so there is nothing to judge".into());

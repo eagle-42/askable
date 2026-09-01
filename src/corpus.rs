@@ -136,10 +136,9 @@ mod tests {
 
     #[test]
     fn the_fingerprint_follows_the_questions_not_the_formatting() {
-        let pretty = serde_json::to_string_pretty(
-            &serde_json::from_str::<serde_json::Value>(RAW).unwrap(),
-        )
-        .unwrap();
+        let pretty =
+            serde_json::to_string_pretty(&serde_json::from_str::<serde_json::Value>(RAW).unwrap())
+                .unwrap();
         assert_eq!(
             Corpus::from_json(RAW).unwrap().fingerprint(),
             Corpus::from_json(&pretty).unwrap().fingerprint(),
@@ -152,7 +151,8 @@ mod tests {
             Corpus::from_json(&edited).unwrap().fingerprint()
         );
         // So must dropping a case: the denominator changed.
-        let shorter = r#"{"name":"demo","cases":[{"question":"where do backups live","gold":["a1b2"]}]}"#;
+        let shorter =
+            r#"{"name":"demo","cases":[{"question":"where do backups live","gold":["a1b2"]}]}"#;
         assert_ne!(
             Corpus::from_json(RAW).unwrap().fingerprint(),
             Corpus::from_json(shorter).unwrap().fingerprint()
