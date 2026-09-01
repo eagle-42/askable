@@ -30,7 +30,9 @@ impl Candidate {
         // Without a placeholder every case would hit the same URL and the run
         // would produce 63 identical rows that still average into a rate.
         if !self.url.contains("{query}") {
-            return Err("the url has no {query} placeholder, so every case would ask the same thing".into());
+            return Err(
+                "the url has no {query} placeholder, so every case would ask the same thing".into(),
+            );
         }
         if self.id_field.is_empty() {
             return Err("id_field is empty".into());
@@ -87,7 +89,15 @@ mod tests {
 
     #[test]
     fn a_url_without_a_placeholder_is_refused() {
-        assert!(candidate("http://localhost/search?q=hello").check().is_err());
-        assert!(candidate("http://localhost/search?q={query}").check().is_ok());
+        assert!(
+            candidate("http://localhost/search?q=hello")
+                .check()
+                .is_err()
+        );
+        assert!(
+            candidate("http://localhost/search?q={query}")
+                .check()
+                .is_ok()
+        );
     }
 }
