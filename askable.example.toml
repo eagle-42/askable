@@ -15,3 +15,21 @@ url = "http://localhost:8080/search?q={query}&k={k}"
 # Where the array of results sits, when it is not the whole body.
 # Leave it out when the service answers with a bare JSON array.
 # results_at = "results"
+
+# How strict the verdict is. Every key is optional; what follows is the default.
+#
+# These live in a file, versioned with the code, so that a FAIL can be argued
+# with in a diff rather than in a shell history.
+[judge]
+# Ranks at which a case counts as found. 1 is "did the right answer come first",
+# 5 is "was it anywhere near the top".
+cutoffs = [1, 5]
+# Significance level of the exact McNemar test.
+alpha = 0.05
+
+# Optional. An absolute recall that must hold whatever the paired test says.
+# The weak form, kept as a safety net: it cannot see a small regression, but it
+# catches a collapse.
+# [[judge.floor]]
+# cutoff = 1
+# recall = 0.60

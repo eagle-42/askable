@@ -1,8 +1,8 @@
 [package]
 name = "askable"
-version = "0.3.0"
+version = "0.5.0"
 edition = "2024"
-description = "A regression judge for ranked search: replay a frozen corpus, record where the right answers landed"
+description = "A regression judge for ranked search: replay a frozen corpus, compare case by case, return a verdict"
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
