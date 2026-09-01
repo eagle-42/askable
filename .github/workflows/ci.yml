@@ -1,0 +1,63 @@
+# Every check that has to pass before a change lands, run where nobody can
+# forget to run it. The same three commands work locally.
+#
+# No toolchain action: rustup ships with the runner, so the current stable is
+# one command away and there is no third-party step to trust or to pin.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Current stable toolchain
+        run: |
+          rustup update --no-self-update stable
+          rustup default stable
+          rustup component add rustfmt clippy
+          rustc --version
+
+      # Formatting first: it fails in a second and says exactly what to fix.
+      - name: Format
+        run: cargo fmt --check
+
+      # Warnings are errors here. A warning nobody is forced to read is a
+      # warning that accumulates until the real one hides among them.
+      - name: Lint
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Test
+        run: cargo test --locked
+
+      # The defect this step prevents really happened: the repository shipped
+      # `judge`, `--judge` and `--label` for three versions with no line of
+      # documentation, because a commit script only staged src/*.rs. A reread
+      # did not catch it; a command does.
+      #
+      # The loop does NOT run in a pipe: an `exit 1` inside a `while read`
+      # runs in a subshell and fails nothing.
+      - name: The README follows the binary
+        run: |
+          cargo build --release --locked
+          flags=$(./target/release/askable 2>&1 | grep -oE '\-\-[a-z-]+' | sort -u)
+          missing=""
+          for f in $flags; do
+            grep -qF -- "$f" README.md || missing="$missing $f"
+          done
+          for c in run judge tail; do
+            grep -qF -- "askable $c" README.md || missing="$missing askable-$c"
+          done
+          if [ -n "$missing" ]; then
+            echo "not documented:$missing"
+            exit 1
+          fi
+          echo "every flag and subcommand appears in the README"
