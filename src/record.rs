@@ -18,6 +18,15 @@ pub struct Outcome {
     /// quietly average them together.
     pub rank: Option<usize>,
     pub returned: Vec<String>,
+    /// What this question cost, as the candidate reported it.
+    ///
+    /// `None` is not zero. A candidate with no generative model in its path
+    /// reports nothing, and a zero would read as "free" rather than as "not
+    /// reported".
+    #[serde(default)]
+    pub input_tokens: Option<u64>,
+    #[serde(default)]
+    pub output_tokens: Option<u64>,
     /// Every numeric field the top result carried, whatever it is called.
     ///
     /// Not a fixed list: the scores that explain a failure belong to whoever
@@ -54,7 +63,37 @@ pub struct Meta {
     pub recall_at_5: Option<f64>,
     pub recall_at_10: Option<f64>,
     pub mrr: f64,
+    /// Totals over the cases that reported anything, or `None` when not one
+    /// did. Summing a corpus of absences to zero would turn "nobody counted"
+    /// into "it was free".
+    #[serde(default)]
+    pub input_tokens_total: Option<u64>,
+    #[serde(default)]
+    pub output_tokens_total: Option<u64>,
+    /// Cost of the whole replay, when both a price and some tokens are known.
+    #[serde(default)]
+    pub cost: Option<f64>,
     pub seconds: u64,
+}
+
+/// Sums what was reported, or says nothing was.
+pub fn total(outcomes: &[Outcome], champ: fn(&Outcome) -> Option<u64>) -> Option<u64> {
+    let mut somme = None;
+    for o in outcomes {
+        if let Some(v) = champ(o) {
+            somme = Some(somme.unwrap_or(0) + v);
+        }
+    }
+    somme
+}
+
+/// How many cases reported a count. Printed next to a total, because a total
+/// over three cases out of a hundred and forty-three is not a bill.
+pub fn how_many_report(outcomes: &[Outcome]) -> usize {
+    outcomes
+        .iter()
+        .filter(|o| o.input_tokens.is_some() || o.output_tokens.is_some())
+        .count()
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -147,6 +186,8 @@ mod tests {
             rank,
             returned: Vec::new(),
             top_numbers: BTreeMap::new(),
+            input_tokens: None,
+            output_tokens: None,
         }
     }
 
@@ -200,6 +241,30 @@ mod tests {
     fn the_aggregates_survive_an_empty_slice() {
         assert_eq!(recall_at(&[], 1), 0.0);
         assert_eq!(mrr(&[]), 0.0);
+    }
+
+    #[test]
+    fn a_total_over_nothing_is_nothing_not_zero() {
+        let silent = vec![outcome(Some(1)), outcome(Some(2))];
+        assert_eq!(
+            total(&silent, |o| o.input_tokens),
+            None,
+            "summing absences into zero would read as free"
+        );
+        assert_eq!(how_many_report(&silent), 0);
+
+        // One case reports: the total is that case, and we know it stands alone.
+        let mut mixed = silent.clone();
+        mixed[0].input_tokens = Some(40);
+        mixed.push({
+            let mut o = outcome(Some(1));
+            o.input_tokens = Some(2);
+            o.output_tokens = Some(8);
+            o
+        });
+        assert_eq!(total(&mixed, |o| o.input_tokens), Some(42));
+        assert_eq!(total(&mixed, |o| o.output_tokens), Some(8));
+        assert_eq!(how_many_report(&mixed), 2);
     }
 
     #[test]

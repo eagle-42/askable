@@ -110,6 +110,18 @@ Any service that answers a GET with a ranked list of identifiers is a candidate.
 results to ask for. Two optional keys cover the rest: `id_field` when the
 identifier is not called `id`, `results_at` when the array is nested.
 
+If the service reports what a question cost, say where those numbers live and
+what a thousand tokens is worth:
+
+```toml
+[candidate.mine]
+usage_at = "usage"
+
+[candidate.mine.price]
+per_1k_input = 0.003
+per_1k_output = 0.015
+```
+
 The judge's strictness lives in the same file so that a FAIL can be argued with
 in a diff rather than in a shell history. An optional `[[judge.floor]]` adds an
 absolute recall that must hold whatever the paired test says.
@@ -135,6 +147,35 @@ Write the questions the way someone would actually type them. Use the words they
 would use, including the document's own domain terms — what you must not do is
 lift a *phrase*. Paraphrasing a term nobody would avoid measures your synonym
 skills, not the retrieval.
+
+## What a replay cost
+
+askable does not call a model, so it cannot count tokens. It reports what the
+candidate reports, and nothing else. Point `usage_at` at the object holding the
+counts and both spellings are read: `input_tokens` / `output_tokens`, the
+current OpenTelemetry names, and `prompt_tokens` / `completion_tokens`, their
+deprecated predecessors that most services still emit. When both appear, the
+current name wins — they are never added together.
+
+A candidate with no generative model in its path reports nothing, and that is
+said out loud rather than shown as a zero:
+
+```
+tokens     - (no candidate reported any)
+```
+
+Totals are absent, not zero, when no case reported a count — summing a corpus of
+absences into `0` would turn "nobody counted" into "it was free". When some cases
+report and others do not, the total says how many:
+
+```
+tokens     in 360 / out 90  (3 of 143 cases reported)
+cost       0.0024
+```
+
+askable emits no `gen_ai.*` span of its own. A span it emitted carrying those
+attributes would claim askable made the model call, which is false. The counts
+belong to the case, as reported by the candidate.
 
 ## What a passing run means, and what it does not
 

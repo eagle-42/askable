@@ -10,6 +10,47 @@ use crate::record::{Outcome, rank_of};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+/// What one question cost, as the candidate reported it.
+///
+/// Both halves are optional and independent: a service may report one and not
+/// the other, and `None` means "not reported", never zero.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Usage {
+    pub input: Option<u64>,
+    pub output: Option<u64>,
+}
+
+/// A candidate's whole answer: what it found, and what it says it cost.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Answer {
+    pub hits: Vec<Hit>,
+    pub usage: Usage,
+}
+
+/// Reads the token counts a candidate reports, if it reports any.
+///
+/// Two spellings are accepted. `input_tokens` and `output_tokens` are the
+/// current OpenTelemetry names; `prompt_tokens` and `completion_tokens` are
+/// their deprecated predecessors, still what most services emit today. The
+/// current name wins when both are present.
+pub fn usage_from(body: &Value, cand: &Candidate) -> Usage {
+    let Some(key) = cand.usage_at.as_deref() else {
+        return Usage::default();
+    };
+    let Some(o) = body.get(key) else {
+        return Usage::default();
+    };
+    let lire = |current: &str, legacy: &str| {
+        o.get(current)
+            .or_else(|| o.get(legacy))
+            .and_then(Value::as_u64)
+    };
+    Usage {
+        input: lire("input_tokens", "prompt_tokens"),
+        output: lire("output_tokens", "completion_tokens"),
+    }
+}
+
 /// One result, reduced to what a judge can use.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Hit {
@@ -71,7 +112,7 @@ pub fn replay<F, P>(
     mut progress: P,
 ) -> Result<Vec<Outcome>, String>
 where
-    F: FnMut(&str) -> Result<Vec<Hit>, String>,
+    F: FnMut(&str) -> Result<Answer, String>,
     P: FnMut(usize, usize),
 {
     let total = corpus.cases.len();
@@ -80,12 +121,18 @@ where
         // One failure stops everything. A record missing a third of its cases
         // still computes an average, and that average looks exactly like a
         // measurement — refusing to produce one is the only honest answer.
-        let hits = fetch(&cand.request_url(&case.question, k))
+        let answer = fetch(&cand.request_url(&case.question, k))
             .map_err(|e| format!("case {}/{} ({:?}): {e}", i + 1, total, case.question))?;
-        let returned: Vec<String> = hits.iter().map(|h| h.id.clone()).collect();
+        let returned: Vec<String> = answer.hits.iter().map(|h| h.id.clone()).collect();
         out.push(Outcome {
             rank: rank_of(&returned, &case.gold),
-            top_numbers: hits.first().map(|h| h.numbers.clone()).unwrap_or_default(),
+            top_numbers: answer
+                .hits
+                .first()
+                .map(|h| h.numbers.clone())
+                .unwrap_or_default(),
+            input_tokens: answer.usage.input,
+            output_tokens: answer.usage.output,
             question: case.question.clone(),
             gold: case.gold.clone(),
             returned,
@@ -125,6 +172,13 @@ mod tests {
         }
     }
 
+    fn repond(ids: &[&str]) -> Answer {
+        Answer {
+            hits: ids.iter().map(|i| hit(i)).collect(),
+            usage: Usage::default(),
+        }
+    }
+
     #[test]
     fn every_case_is_asked_and_ranked() {
         let mut seen = Vec::new();
@@ -134,7 +188,7 @@ mod tests {
             10,
             |url| {
                 seen.push(url.to_string());
-                Ok(vec![hit("zzz1"), hit("bbb2")])
+                Ok(repond(&["zzz1", "bbb2"]))
             },
             |_, _| {},
         )
@@ -160,7 +214,7 @@ mod tests {
                 if asked == 2 {
                     Err("connection refused".into())
                 } else {
-                    Ok(vec![hit("aaa1")])
+                    Ok(repond(&["aaa1"]))
                 }
             },
             |_, _| {},
@@ -170,6 +224,79 @@ mod tests {
         assert_eq!(asked, 2);
         assert!(err.contains("case 2/3"), "got: {err}");
         assert!(err.contains("connection refused"), "got: {err}");
+    }
+
+    #[test]
+    fn a_candidate_that_reports_nothing_reports_nothing() {
+        // The common case: a search engine has neither prompt nor completion.
+        let without = candidate();
+        let body = serde_json::json!([{"id": "aaaa"}]);
+        assert_eq!(usage_from(&body, &without), Usage::default());
+        // Even when the answer carries a usage object: with no usage_at we do
+        // not go looking. Guessing where the numbers live is inventing them.
+        let with_object = serde_json::json!({"usage": {"input_tokens": 10}});
+        assert_eq!(usage_from(&with_object, &without), Usage::default());
+    }
+
+    #[test]
+    fn both_spellings_are_read_and_the_current_one_wins() {
+        let mut cand = candidate();
+        cand.usage_at = Some("usage".into());
+
+        let current = serde_json::json!({"usage": {"input_tokens": 12, "output_tokens": 34}});
+        assert_eq!(
+            usage_from(&current, &cand),
+            Usage {
+                input: Some(12),
+                output: Some(34)
+            }
+        );
+        // The deprecated names, still emitted by most services.
+        let legacy = serde_json::json!({"usage": {"prompt_tokens": 5, "completion_tokens": 6}});
+        assert_eq!(
+            usage_from(&legacy, &cand),
+            Usage {
+                input: Some(5),
+                output: Some(6)
+            }
+        );
+        // Both present: the current name wins, never the sum.
+        let both = serde_json::json!(
+            {"usage": {"input_tokens": 1, "prompt_tokens": 99, "output_tokens": 2}});
+        assert_eq!(usage_from(&both, &cand).input, Some(1));
+        // One half only: the other stays absent, not zero.
+        let half = serde_json::json!({"usage": {"input_tokens": 7}});
+        assert_eq!(
+            usage_from(&half, &cand),
+            Usage {
+                input: Some(7),
+                output: None
+            }
+        );
+    }
+
+    #[test]
+    fn what_a_candidate_reports_travels_to_the_outcome() {
+        let mut cand = candidate();
+        cand.usage_at = Some("usage".into());
+        let out = replay(
+            &corpus(),
+            &cand,
+            10,
+            |_| {
+                Ok(Answer {
+                    hits: vec![hit("aaa1")],
+                    usage: Usage {
+                        input: Some(100),
+                        output: Some(20),
+                    },
+                })
+            },
+            |_, _| {},
+        )
+        .unwrap();
+        assert_eq!(out[0].input_tokens, Some(100));
+        assert_eq!(out[2].output_tokens, Some(20));
     }
 
     #[test]

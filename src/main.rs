@@ -11,8 +11,8 @@
 use askable::candidate::Candidate;
 use askable::config::{Config, Judge};
 use askable::corpus::Corpus;
-use askable::record::{Meta, Record, mrr, recall_within, utc_iso};
-use askable::replay::{Hit, hits_from, replay};
+use askable::record::{Meta, Record, how_many_report, mrr, recall_within, total, utc_iso};
+use askable::replay::{Answer, hits_from, replay, usage_from};
 use askable::verdict::{AtCutoff, compare};
 use askable::{Event, events};
 use std::io::{self, IsTerminal, Read, Write};
@@ -287,6 +287,18 @@ fn run(args: &[String]) -> Result<i32, String> {
             recall_at_5: recall_within(&outcomes, 5, a.k),
             recall_at_10: recall_within(&outcomes, 10, a.k),
             mrr: mrr(&outcomes),
+            input_tokens_total: total(&outcomes, |o| o.input_tokens),
+            output_tokens_total: total(&outcomes, |o| o.output_tokens),
+            cost: cand.price.as_ref().and_then(|p| {
+                let e = total(&outcomes, |o| o.input_tokens);
+                let s = total(&outcomes, |o| o.output_tokens);
+                // No price without a token: a cost of 0 on a silent candidate
+                // would read as free instead of as not reported.
+                (e.is_some() || s.is_some()).then(|| {
+                    e.unwrap_or(0) as f64 / 1000.0 * p.per_1k_input
+                        + s.unwrap_or(0) as f64 / 1000.0 * p.per_1k_output
+                })
+            }),
             seconds: started.elapsed().as_secs(),
         },
         outcomes,
@@ -335,8 +347,8 @@ fn judge_settings(config: &Path) -> Result<Judge, String> {
     }
 }
 
-/// One HTTP call, turned into hits or into an error that names the case.
-fn ask(agent: &ureq::Agent, url: &str, cand: &Candidate) -> Result<Vec<Hit>, String> {
+/// One HTTP call, turned into an answer or into an error that names the case.
+fn ask(agent: &ureq::Agent, url: &str, cand: &Candidate) -> Result<Answer, String> {
     let mut response = agent.get(url).call().map_err(|e| e.to_string())?;
     // A non-200 is not "no result": the service refused, and pretending it
     // returned nothing would score the refusal as a retrieval failure.
@@ -348,7 +360,10 @@ fn ask(agent: &ureq::Agent, url: &str, cand: &Candidate) -> Result<Vec<Hit>, Str
         .body_mut()
         .read_json()
         .map_err(|e| format!("the answer is not JSON: {e}"))?;
-    hits_from(&body, cand)
+    Ok(Answer {
+        hits: hits_from(&body, cand)?,
+        usage: usage_from(&body, cand),
+    })
 }
 
 /// Progress on one rewritten line, and only when someone is watching.
@@ -400,6 +415,25 @@ fn report(record: &Record) {
         }
     }
     println!("mrr        {:.4}", m.mrr);
+
+    // Absence is SAID out loud. Staying silent when nobody reports usage
+    // would suggest it was measured and found to be zero.
+    let reporting = how_many_report(&record.outcomes);
+    match (m.input_tokens_total, m.output_tokens_total) {
+        (None, None) => println!("tokens     - (no candidate reported any)"),
+        (e, s) => {
+            println!(
+                "tokens     in {} / out {}  ({} of {} cases reported)",
+                e.map(|v| v.to_string()).unwrap_or_else(|| "-".into()),
+                s.map(|v| v.to_string()).unwrap_or_else(|| "-".into()),
+                reporting,
+                m.cases
+            );
+            if let Some(c) = m.cost {
+                println!("cost       {c:.4}");
+            }
+        }
+    }
     // The judge has a floor, and it belongs next to the numbers rather than in
     // a README nobody rereads: below it, a change is invisible to this corpus.
     println!(
