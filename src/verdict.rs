@@ -163,9 +163,6 @@ mod tests {
                 recall_at_5: None,
                 recall_at_10: None,
                 mrr: 0.0,
-                input_tokens_total: None,
-                output_tokens_total: None,
-                cost: None,
                 seconds: 0,
             },
             outcomes: ranks
@@ -177,8 +174,6 @@ mod tests {
                     rank: *r,
                     returned: Vec::new(),
                     top_numbers: BTreeMap::new(),
-                    input_tokens: None,
-                    output_tokens: None,
                 })
                 .collect(),
         }

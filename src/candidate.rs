@@ -19,23 +19,6 @@ pub struct Candidate {
     pub id_field: String,
     /// Where the array of results sits, when it is not the whole body.
     pub results_at: Option<String>,
-    /// Where the token counts sit, when the service reports any.
-    ///
-    /// Absent means this candidate reports nothing, which is the common case:
-    /// a retriever without a generative model in its path has no prompt and no
-    /// completion to count.
-    pub usage_at: Option<String>,
-    /// What a thousand tokens cost, when anyone knows.
-    pub price: Option<Price>,
-}
-
-/// Price per thousand tokens, in whatever currency the owner thinks in.
-///
-/// askable does not name a currency: it multiplies, it does not invoice.
-#[derive(Debug, Deserialize, Clone, PartialEq)]
-pub struct Price {
-    pub per_1k_input: f64,
-    pub per_1k_output: f64,
 }
 
 fn id_field_default() -> String {
@@ -90,8 +73,6 @@ mod tests {
             url: url.into(),
             id_field: "id".into(),
             results_at: None,
-            usage_at: None,
-            price: None,
         }
     }
 

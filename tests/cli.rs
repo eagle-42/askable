@@ -185,8 +185,7 @@ fn fake_service(how_many: usize, body: &'static str) -> (u16, std::thread::JoinH
 #[test]
 fn a_whole_replay_goes_through_the_network_and_writes_a_record() {
     let dir = Dir::make("replay");
-    let body = r#"{"results":[{"id":"aaaa1111","score":0.9},{"id":"bbbb2222"}],
-"usage":{"input_tokens":10,"output_tokens":4}}"#;
+    let body = r#"{"results":[{"id":"aaaa1111","score":0.9},{"id":"bbbb2222"}]}"#;
     let (port, h) = fake_service(2, body);
 
     dir.write(
@@ -195,11 +194,6 @@ fn a_whole_replay_goes_through_the_network_and_writes_a_record() {
             r#"[candidate.fake]
 url = "http://127.0.0.1:{port}/s?q={{query}}&k={{k}}"
 results_at = "results"
-usage_at = "usage"
-
-[candidate.fake.price]
-per_1k_input = 1.0
-per_1k_output = 2.0
 "#
         ),
     );
@@ -234,14 +228,12 @@ per_1k_output = 2.0
         raw.contains(r#""rank": null"#),
         "absent must stay null, not 0"
     );
-    // What the service reported reaches the total, and the cost follows.
-    assert!(raw.contains(r#""input_tokens_total": 20"#), "got: {raw}");
-    assert!(raw.contains(r#""output_tokens_total": 8"#), "got: {raw}");
+    // And the record carries the identity of what was measured.
     assert!(
-        out(&o).contains("2 of 2 cases reported"),
-        "got: {}",
-        out(&o)
+        raw.contains(r#""candidate_version": "trial""#),
+        "got: {raw}"
     );
+    assert!(raw.contains(r#""cases": 2"#), "got: {raw}");
 }
 
 #[test]
