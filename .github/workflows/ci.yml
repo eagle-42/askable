@@ -47,8 +47,8 @@ jobs:
       # runs in a subshell and fails nothing.
       - name: The README follows the binary
         run: |
-          cargo build --release --locked
-          flags=$(./target/release/askable 2>&1 | grep -oE '\-\-[a-z-]+' | sort -u)
+          cargo build --locked
+          flags=$(./target/debug/askable 2>&1 | grep -oE '\-\-[a-z-]+' | sort -u)
           missing=""
           for f in $flags; do
             grep -qF -- "$f" README.md || missing="$missing $f"
