@@ -204,9 +204,30 @@ mod tests {
 
     #[test]
     fn the_timestamp_is_right_including_a_leap_day() {
-        assert_eq!(utc_iso(0), "1970-01-01T00:00:00Z");
-        assert_eq!(utc_iso(951_782_400), "2000-02-29T00:00:00Z");
-        assert_eq!(utc_iso(1_789_117_200), "2026-09-11T09:00:00Z");
-        assert_eq!(utc_iso(1_789_117_199), "2026-09-11T08:59:59Z");
+        // Four dates let three mutations survive in the day-of-month
+        // computation: they all fell on nearly the same day of the month.
+        // These cross months of 28, 29, 30 and 31 days, the century
+        // rollover, and both ends of a year.
+        for (seconds, expected) in [
+            (0u64, "1970-01-01T00:00:00Z"),
+            // THE PIVOT. The algorithm counts years from March 1st, and that is
+            // where the century correction term switches sides. Three mutations
+            // survived here: with the sign flipped, this date becomes 1970-02-29,
+            // a day that does not exist. Found by searching, not by
+            // guessing.
+            (5_097_600, "1970-03-01T00:00:00Z"),
+            (5_270_400, "1970-03-03T00:00:00Z"),
+            (946_684_800, "2000-01-01T00:00:00Z"),
+            (951_782_400, "2000-02-29T00:00:00Z"),
+            (1_709_251_200, "2024-03-01T00:00:00Z"),
+            (1_769_903_999, "2026-01-31T23:59:59Z"),
+            (1_772_323_200, "2026-03-01T00:00:00Z"),
+            (1_782_777_600, "2026-06-30T00:00:00Z"),
+            (1_789_117_199, "2026-09-11T08:59:59Z"),
+            (1_789_117_200, "2026-09-11T09:00:00Z"),
+            (1_798_718_400, "2026-12-31T12:00:00Z"),
+        ] {
+            assert_eq!(utc_iso(seconds), expected, "for {seconds}");
+        }
     }
 }
