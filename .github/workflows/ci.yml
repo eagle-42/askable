@@ -61,3 +61,35 @@ jobs:
             exit 1
           fi
           echo "every flag and subcommand appears in the README"
+
+  # The number of tests says nothing. What can be measured is how many
+  # deliberate defects they catch. Measured on the whole crate: 66 mutants
+  # survived for 43 tests, then 27 for 63 after aiming at the lines the tool
+  # named.
+  #
+  # This step keeps only the CORE - what decides a verdict and what carries a
+  # measurement. A survivor there is a hole, not a nuance. The rest of the
+  # crate is measured by hand: a full mutation run costs minutes and the
+  # feedback loop has to stay short.
+  #
+  # Separate job: `check` keeps its forty seconds.
+  mutants:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Current stable toolchain
+        run: |
+          rustup update --no-self-update stable
+          rustup default stable
+
+      - name: Install cargo-mutants
+        run: cargo install cargo-mutants --locked
+
+      - name: No surviving mutant in what decides
+        run: |
+          cargo mutants --no-shuffle -j 2 \
+            --file src/verdict.rs \
+            --file src/record.rs \
+            --file src/corpus.rs \
+            --file src/cli.rs

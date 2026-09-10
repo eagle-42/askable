@@ -1,0 +1,17 @@
+# Two exclusions, each one justified rather than excused.
+#
+# 1. `regressions.len() > improvements.len()` mutated to `>=` changes no
+#    result: at equal counts the exact McNemar test ALWAYS returns exactly
+#    1.0 (2 x P(X <= b) with n = 2b exceeds 1 and caps), so the second half
+#    of the conjunction is false on both sides. A provably equivalent
+#    mutation. The source carries the same explanation at the exact spot.
+#
+# 2. `i += 1` mutated to `i *= 1` in the argument loops: the index stops
+#    advancing, the program spins, and the mutation IS detected - by hanging,
+#    not by failing. It counts as detection, but it costs twenty seconds of
+#    wall clock every time and teaches nothing new.
+exclude_re = [
+    "replace > with >= in compare",
+    "replace \\+= with \\*= in run_args",
+    "replace \\+= with \\*= in tail_args",
+]

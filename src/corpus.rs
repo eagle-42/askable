@@ -126,6 +126,53 @@ mod tests {
     }
 
     #[test]
+    fn the_fingerprint_is_a_data_format_and_is_pinned() {
+        // This value travels inside every archived record. Changing the hash
+        // function would SILENTLY make every measurement already taken
+        // incomparable: they would carry a fingerprint nothing produces.
+        //
+        // Pinning it is not a test of the implementation, it is the format's
+        // contract. It also kills every mutation of the mixing - a `|=` or an
+        // `&=` in place of the `^=` gives a poorer hash without breaking
+        // anything visible, and that is exactly what nobody wants to find out
+        // on the day two different corpora look alike.
+        let c = Corpus::from_json(
+            r#"{"name":"or","cases":[{"question":"one question","gold":["aaaa","bbbb"]},{"question":"another","gold":["cccc"]}]}"#,
+        )
+        .unwrap();
+        assert_eq!(c.fingerprint(), "dae2388870852fa5");
+    }
+
+    #[test]
+    fn the_separator_keeps_two_different_corpora_apart() {
+        // The separator comment promised that ["aaaa","bbbb"] and
+        // ["aaaabbbb"] never collide. Nothing checked it, and three
+        // mutations of the `^= 0xff` survived.
+        let two_terms = r#"{"name":"x","cases":[{"question":"q","gold":["aaaa","bbbb"]}]}"#;
+        let one_term = r#"{"name":"x","cases":[{"question":"q","gold":["aaaabbbb"]}]}"#;
+        assert_ne!(
+            Corpus::from_json(two_terms).unwrap().fingerprint(),
+            Corpus::from_json(one_term).unwrap().fingerprint(),
+            "without a separator these two corpora glue into the same word"
+        );
+        // Same between a question and the answer expected of it.
+        let split = r#"{"name":"x","cases":[{"question":"abcd","gold":["efgh"]}]}"#;
+        let glued = r#"{"name":"x","cases":[{"question":"abcdefgh","gold":["ijkl"]}]}"#;
+        assert_ne!(
+            Corpus::from_json(split).unwrap().fingerprint(),
+            Corpus::from_json(glued).unwrap().fingerprint()
+        );
+        // And the ORDER of the cases counts: two corpora are not the same
+        // identity just because they carry the same questions shuffled.
+        let a = r#"{"name":"x","cases":[{"question":"first","gold":["aaaa"]},{"question":"second","gold":["bbbb"]}]}"#;
+        let b = r#"{"name":"x","cases":[{"question":"second","gold":["bbbb"]},{"question":"first","gold":["aaaa"]}]}"#;
+        assert_ne!(
+            Corpus::from_json(a).unwrap().fingerprint(),
+            Corpus::from_json(b).unwrap().fingerprint()
+        );
+    }
+
+    #[test]
     fn the_example_shipped_in_the_repository_loads() {
         // An example whose format drifted from the parser is a bug discovered
         // by the first stranger who tries it.

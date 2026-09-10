@@ -7,3 +7,5 @@
 # A real corpus quotes the documents it searches. Keep it out of a public
 # repository: the questions alone are a table of contents.
 *.private.json
+# cargo-mutants output: build artefacts, and they quote absolute paths.
+/mutants.out*
