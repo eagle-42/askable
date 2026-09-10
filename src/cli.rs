@@ -83,6 +83,7 @@ pub fn run_args(args: &[String]) -> Result<RunArgs, String> {
     Ok(a)
 }
 
+#[derive(Debug)]
 pub struct TailArgs {
     pub filters: Vec<(String, String)>,
     pub columns: Vec<String>,
@@ -160,5 +161,47 @@ mod tests {
         assert!(run_args(&args("--candidate c --label x")).is_err());
         assert!(run_args(&args("--candidate c --corpus f.json --label x --k 0")).is_err());
         assert!(run_args(&args("--candidate c --corpus f.json --label x --nope 1")).is_err());
+    }
+
+    #[test]
+    fn tail_reads_its_three_flags_and_refuses_the_rest() {
+        // tail_args n avait AUCUN test : sept mutations y survivaient.
+        let a = tail_args(&args("--match rag=true --match k=v --show a,b --last 5")).unwrap();
+        assert_eq!(a.filters.len(), 2);
+        assert_eq!(a.filters[0], ("rag".into(), "true".into()));
+        assert_eq!(a.filters[1], ("k".into(), "v".into()));
+        assert_eq!(a.columns, vec!["a".to_string(), "b".to_string()]);
+        assert_eq!(a.last, 5);
+
+        // With no flag, the defaults hold.
+        let d = tail_args(&[]).unwrap();
+        assert_eq!(d.last, DEFAULT_LAST);
+        assert!(d.filters.is_empty() && d.columns.is_empty());
+    }
+
+    #[test]
+    fn tail_says_what_is_wrong_rather_than_guessing() {
+        // A missing value must not be invented.
+        assert!(tail_args(&args("--last")).is_err());
+        assert!(tail_args(&args("--match")).is_err());
+        // A --match with no equals sign is not a filter.
+        let e = tail_args(&args("--match rag")).unwrap_err();
+        assert!(e.contains("key=value"), "got: {e}");
+        // A number that is not one.
+        assert!(tail_args(&args("--last plenty")).is_err());
+        // An unknown flag stops here, it is not skipped in silence.
+        let e = tail_args(&args("--nope 1")).unwrap_err();
+        assert!(e.contains("--nope"), "got: {e}");
+    }
+
+    #[test]
+    fn the_columns_are_trimmed_because_people_write_spaces() {
+        // A shell passes this as ONE argument: it cannot be split on spaces
+        // the way the help above does.
+        let a = tail_args(&["--show".to_string(), "a, b ,c".to_string()]).unwrap();
+        assert_eq!(
+            a.columns,
+            vec!["a".to_string(), "b".to_string(), "c".to_string()]
+        );
     }
 }

@@ -173,6 +173,50 @@ mod tests {
     }
 
     #[test]
+    fn an_escaped_quote_does_not_close_the_value() {
+        // This branch existed from the first day and NO test ever went
+        // through it: fourteen mutations survived. A value holding an escaped
+        // quote has to be read whole, and the next key has to stay readable
+        // behind it.
+        let l = r#"2026-01-01T09:00:00Z INFO s: q="she said \"no\" then" ms=7"#;
+        let e = parse(l);
+        assert_eq!(e.fields["q"], r#"she said \"no\" then"#);
+        assert_eq!(e.fields["ms"], "7", "the next key has to survive");
+    }
+
+    #[test]
+    fn a_quote_at_the_very_end_does_not_run_past_the_line() {
+        // An opening quote never closed: read to the end, without running
+        // over or looping.
+        let e = parse(r#"2026-01-01T09:00:00Z INFO s: q="never closed"#);
+        assert_eq!(e.fields["q"], "never closed");
+        // An empty value is still a value, not an absence.
+        let v = parse(r#"2026-01-01T09:00:00Z INFO s: q="" ms=1"#);
+        assert_eq!(v.fields["q"], "");
+        assert_eq!(v.fields["ms"], "1");
+    }
+
+    #[test]
+    fn a_bare_equals_belongs_to_no_key() {
+        // `=` with no word before it makes no field, and eats nothing after.
+        let e = parse("2026-01-01T09:00:00Z INFO s: = a=1");
+        assert_eq!(e.fields.len(), 1);
+        assert_eq!(e.fields["a"], "1");
+    }
+
+    #[test]
+    fn a_stream_returns_what_it_read_and_not_a_placeholder() {
+        // The tests only looked at the NUMBER of events: returning a default
+        // vector went unnoticed.
+        let stream = format!("{LINE}\n2026-09-10T14:51:00Z INFO svc: search rag=true results=9\n");
+        let v = events(&stream, &filter("rag", "true"));
+        assert_eq!(v.len(), 2);
+        assert_eq!(v[0].fields["query"], "why does my hook not fire");
+        assert_eq!(v[1].fields["results"], "9");
+        assert_eq!(v[1].time, "14:51:00");
+    }
+
+    #[test]
     fn a_line_without_a_timestamp_says_so() {
         assert_eq!(time_of("no timestamp here"), "--:--:--");
         assert_eq!(time_of("2026-09-10Tnonsense"), "--:--:--");
