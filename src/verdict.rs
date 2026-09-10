@@ -126,6 +126,11 @@ the two were never measured",
                 cutoff,
                 reference_recall: rate(reference),
                 candidate_recall,
+                // `>` and not `>=`: at equal counts the exact test always returns
+                // exactly 1.0 (2 x P(X <= b) with n = 2b exceeds 1 and caps), so the
+                // second condition is false either way. The mutation to `>=` has NO
+                // EFFECT, and a mutation run will report it surviving forever - that
+                // is not a hole.
                 significant_regression: regressions.len() > improvements.len()
                     && p_value < judge.alpha,
                 below_floor: judge
@@ -185,6 +190,33 @@ mod tests {
         assert!((mcnemar(5, 0) - 0.0625).abs() < 1e-12);
         assert!((mcnemar(6, 0) - 0.03125).abs() < 1e-12);
         assert!(mcnemar(5, 0) > 0.05 && mcnemar(6, 0) < 0.05);
+    }
+
+    #[test]
+    fn the_p_value_is_exact_when_both_sides_moved() {
+        // The earlier tests only took cases with zero improvements, where the
+        // binomial term loop DOES NOT RUN. Four mutations therefore survived
+        // without breaking a thing. These two values run it once, then twice,
+        // and pin the recurrence to the hundredth.
+        //
+        // 2 * (C(9,0) + C(9,1)) / 2^9 = 20/512
+        assert!(
+            (mcnemar(8, 1) - 0.0390625).abs() < 1e-12,
+            "got {}",
+            mcnemar(8, 1)
+        );
+        // 2 * (C(12,0) + C(12,1) + C(12,2)) / 2^12 = 158/4096
+        assert!(
+            (mcnemar(10, 2) - 0.038_574_218_75).abs() < 1e-12,
+            "got {}",
+            mcnemar(10, 2)
+        );
+        // And a case where the result is neither tiny nor capped.
+        assert!(
+            (mcnemar(7, 2) - 0.179_687_5).abs() < 1e-12,
+            "got {}",
+            mcnemar(7, 2)
+        );
     }
 
     #[test]
@@ -249,6 +281,137 @@ mod tests {
         let at = compare(&before, &after, &judge).unwrap();
         assert_eq!(at[0].below_floor, Some(0.5));
         assert!(at[0].failed());
+    }
+
+    #[test]
+    fn an_improvement_is_counted_and_never_called_a_regression() {
+        // Deleting the (false, true) arm of the comparison broke NO test: they
+        // all started from cases with no improvement. A change that only gains
+        // has to show, and must never count as a loss.
+        let before = record(&[None; 10], "f", 10);
+        let mut after = before.clone();
+        for o in after.outcomes.iter_mut().take(8) {
+            o.rank = Some(1);
+        }
+        let at = compare(&before, &after, &Judge::default()).unwrap();
+        assert_eq!(at[0].improvements.len(), 8);
+        assert_eq!(at[0].regressions.len(), 0);
+        assert!(!at[0].significant_regression, "a gain is not a loss");
+        assert!(!at[0].failed());
+        // The p-value is the same on both sides: the DIRECTION decides.
+        assert!((at[0].p_value - mcnemar(8, 0)).abs() < 1e-12);
+    }
+
+    #[test]
+    fn the_recalls_are_rates_and_not_counts() {
+        // `count / n` mutated to `count * n` and `count % n` without a single
+        // test reading the value: every bench scored 100 percent.
+        let before = record(&[Some(1), Some(1), Some(1), None, None], "f", 10);
+        let after = record(&[Some(1), None, None, None, None], "f", 10);
+        let at = compare(&before, &after, &Judge::default()).unwrap();
+        assert!(
+            (at[0].reference_recall - 0.6).abs() < 1e-12,
+            "got {}",
+            at[0].reference_recall
+        );
+        assert!(
+            (at[0].candidate_recall - 0.2).abs() < 1e-12,
+            "got {}",
+            at[0].candidate_recall
+        );
+    }
+
+    #[test]
+    fn the_two_thresholds_are_strict_and_not_lenient() {
+        // A floor EQUAL to the recall obtained must not fire: `<` and not
+        // `<=`. Otherwise a bench that exactly keeps its promise fails.
+        let before = record(&[Some(1); 10], "f", 10);
+        let after = record(
+            &[
+                Some(1),
+                Some(1),
+                Some(1),
+                Some(1),
+                Some(1),
+                None,
+                None,
+                None,
+                None,
+                None,
+            ],
+            "f",
+            10,
+        );
+        let floored = Judge {
+            floor: vec![Floor {
+                cutoff: 1,
+                recall: 0.5,
+            }],
+            ..Judge::default()
+        };
+        let at = compare(&before, &after, &floored).unwrap();
+        assert!((at[0].candidate_recall - 0.5).abs() < 1e-12);
+        assert_eq!(at[0].below_floor, None, "0.5 is not BELOW 0.5");
+
+        // Same for the significance threshold: `p < alpha`, not `<=`.
+        // Six regressions give exactly 0.03125.
+        let mut six = before.clone();
+        for o in six.outcomes.iter_mut().take(6) {
+            o.rank = Some(4);
+        }
+        let exact = Judge {
+            alpha: 0.031_25,
+            ..Judge::default()
+        };
+        let at = compare(&before, &six, &exact).unwrap();
+        assert!((at[0].p_value - 0.031_25).abs() < 1e-12);
+        assert!(
+            !at[0].significant_regression,
+            "p equal to alpha is not enough"
+        );
+        // A hair above the threshold, and it decides.
+        let large = Judge {
+            alpha: 0.031_26,
+            ..Judge::default()
+        };
+        assert!(compare(&before, &six, &large).unwrap()[0].significant_regression);
+    }
+
+    #[test]
+    fn a_regression_needs_to_outnumber_the_improvements() {
+        // `&&` mutated to `||`: this needs a case where ONE half is true and
+        // the other false. Seven losses against two gains: the difference is
+        // real but the p-value stays at 0.18, so nothing must ring.
+        let before = record(&[Some(1); 7], "f", 10);
+        let mut after = before.clone();
+        for o in after.outcomes.iter_mut() {
+            o.rank = Some(9);
+        }
+        let mut before2 = before.clone();
+        let mut after2 = after.clone();
+        for _ in 0..2 {
+            before2.outcomes.push({
+                let mut o = before2.outcomes[0].clone();
+                o.question = format!("g{}", before2.outcomes.len());
+                o.rank = None;
+                o
+            });
+            after2.outcomes.push({
+                let mut o = after2.outcomes[0].clone();
+                o.question = format!("g{}", after2.outcomes.len());
+                o.rank = Some(1);
+                o
+            });
+        }
+        before2.meta.cases = before2.outcomes.len();
+        after2.meta.cases = after2.outcomes.len();
+        let at = compare(&before2, &after2, &Judge::default()).unwrap();
+        assert_eq!(at[0].regressions.len(), 7);
+        assert_eq!(at[0].improvements.len(), 2);
+        assert!((at[0].p_value - 0.179_687_5).abs() < 1e-12);
+        // More losses than gains, BUT not significant: both conditions have
+        // to hold together.
+        assert!(!at[0].significant_regression);
     }
 
     #[test]
