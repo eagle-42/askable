@@ -9,6 +9,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # On demand as well: a pipeline that can only be reached by pushing cannot
+  # be exercised before the push that needs it.
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
